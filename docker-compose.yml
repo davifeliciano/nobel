@@ -1,8 +1,7 @@
 services:
   app: &app
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: davifeliciano/nobel:latest
+    container_name: nobel
     expose:
       - "8000"
     environment: &appenv
@@ -16,6 +15,7 @@ services:
 
   app_replica:
     <<: *app
+    container_name: nobel_replica
     environment:
       <<: *appenv
 
