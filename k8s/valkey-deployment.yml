@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nobel-valkey
+  labels:
+    app: nobel-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nobel-valkey
+  template:
+    metadata:
+      labels:
+        app: nobel-valkey
+    spec:
+      containers:
+      - name: valkey
+        image: valkey/valkey:7.2.8-alpine
+        ports:
+        - containerPort: 6379
+        command: ["valkey-server", "--save", "60", "1", "--loglevel", "warning"]
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
