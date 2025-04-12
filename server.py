@@ -1,9 +1,10 @@
 import json
 import os
-from flask import Flask, jsonify, abort
+from flask import Flask, Response, jsonify, abort, request
 import psycopg2
 from urllib.parse import urlparse
 from valkey import Valkey
+from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -21,6 +22,11 @@ DB_CONFIG = {
 VALKEY_HOST = os.getenv("VALKEY_HOST", "localhost")
 VALKEY_PORT = int(os.getenv("VALKEY_PORT", 6379))
 VALKEY_DB = int(os.getenv("VALKEY_DB", 0))
+
+INPROGRESS_REQUESTS = Gauge("inprogress_requests", "In Progress Requests", ["method", "endpoint"])
+REQUEST_COUNT = Counter("request_count", "Total Requests", ["method", "endpoint"])
+ERROR_COUNT = Counter("error_count", "Total API Errors", ["method", "endpoint", "status"])
+RESPONSE_LATENCY = Histogram("response_latency", "Response Latency", labelnames=["method", "endpoint"])
 
 app = Flask(__name__)
 cache = Valkey(host=VALKEY_HOST, port=VALKEY_PORT, db=VALKEY_DB)
@@ -99,26 +105,52 @@ def fetch_physics_laureate_by_id(laureate_id):
         if connection:
             connection.close()
 
+@app.before_request
+def before_request():
+    REQUEST_COUNT.labels(method=request.method, endpoint=request.path).inc()
+    INPROGRESS_REQUESTS.labels(method=request.method, endpoint=request.path).inc()
+
+@app.after_request
+def after_request(response):
+    INPROGRESS_REQUESTS.labels(method=request.method, endpoint=request.path).dec()
+    return response
+
+@app.errorhandler(404)
+def not_found(error):
+    ERROR_COUNT.labels(method=request.method, endpoint=request.path, status=404).inc()
+    return jsonify({"error": "Not found"}), 404
+
+@app.errorhandler(Exception)
+def handle_exception(error):
+    ERROR_COUNT.labels(method=request.method, endpoint=request.path, status=500).inc()
+    return jsonify({"error": str(error)}), 500
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    return Response(generate_latest(), mimetype="text/plain")
+
 @app.route("/laureates/physics", methods=["GET"])
 def get_physics_laureates():
-    laureates = fetch_physics_laureates()
-    return jsonify(laureates)
+    with RESPONSE_LATENCY.labels(method=request.method, endpoint=request.path).time():
+        laureates = fetch_physics_laureates()
+        return jsonify(laureates)
 
 @app.route("/laureates/physics/<int:laureate_id>", methods=["GET"])
 def get_physics_laureate_by_id(laureate_id):
-    cache_key = f"physics_laureate_{laureate_id}"
-    cached_result = cache.get(cache_key)
+    with RESPONSE_LATENCY.labels(method=request.method, endpoint=request.path).time():
+        cache_key = f"physics_laureate_{laureate_id}"
+        cached_result = cache.get(cache_key)
 
-    if cached_result:
-        return jsonify(json.loads(cached_result))
+        if cached_result:
+            return jsonify(json.loads(cached_result))
 
-    laureate = fetch_physics_laureate_by_id(laureate_id)
+        laureate = fetch_physics_laureate_by_id(laureate_id)
 
-    if not laureate:
-        abort(404, description="Laureate not found")
+        if not laureate:
+            abort(404, description="Laureate not found")
 
-    cache.set(cache_key, json.dumps(laureate))
-    return jsonify(laureate)
+        cache.set(cache_key, json.dumps(laureate))
+        return jsonify(laureate)
 
 if __name__ == "__main__":
     app.run(debug=True)
