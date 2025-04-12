@@ -16,20 +16,27 @@ DB_CONFIG = {
     "user": parsed_url.username,
     "password": parsed_url.password,
     "host": parsed_url.hostname,
-    "port": parsed_url.port
+    "port": parsed_url.port,
 }
 
 VALKEY_HOST = os.getenv("VALKEY_HOST", "localhost")
 VALKEY_PORT = int(os.getenv("VALKEY_PORT", 6379))
 VALKEY_DB = int(os.getenv("VALKEY_DB", 0))
 
-INPROGRESS_REQUESTS = Gauge("inprogress_requests", "In Progress Requests", ["method", "endpoint"])
+INPROGRESS_REQUESTS = Gauge(
+    "inprogress_requests", "In Progress Requests", ["method", "endpoint"]
+)
 REQUEST_COUNT = Counter("request_count", "Total Requests", ["method", "endpoint"])
-ERROR_COUNT = Counter("error_count", "Total API Errors", ["method", "endpoint", "status"])
-RESPONSE_LATENCY = Histogram("response_latency", "Response Latency", labelnames=["method", "endpoint"])
+ERROR_COUNT = Counter(
+    "error_count", "Total API Errors", ["method", "endpoint", "status"]
+)
+RESPONSE_LATENCY = Histogram(
+    "response_latency", "Response Latency", labelnames=["method", "endpoint"]
+)
 
 app = Flask(__name__)
 cache = Valkey(host=VALKEY_HOST, port=VALKEY_PORT, db=VALKEY_DB)
+
 
 def map_row_to_dict(row):
     return {
@@ -43,6 +50,7 @@ def map_row_to_dict(row):
         "death_country": row[7],
     }
 
+
 def fetch_physics_laureates():
     connection = None
 
@@ -50,7 +58,8 @@ def fetch_physics_laureates():
         connection = psycopg2.connect(**DB_CONFIG)
         cursor = connection.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
                 id,
                 full_name,
@@ -61,7 +70,8 @@ def fetch_physics_laureates():
                 death_city,
                 death_country
             FROM physics_nobel_laureates;
-        """)
+        """
+        )
 
         rows = cursor.fetchall()
         laureates = [map_row_to_dict(row) for row in rows]
@@ -74,6 +84,7 @@ def fetch_physics_laureates():
         if connection:
             connection.close()
 
+
 def fetch_physics_laureate_by_id(laureate_id):
     connection = None
 
@@ -81,7 +92,8 @@ def fetch_physics_laureate_by_id(laureate_id):
         connection = psycopg2.connect(**DB_CONFIG)
         cursor = connection.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
                 id,
                 full_name,
@@ -93,7 +105,9 @@ def fetch_physics_laureate_by_id(laureate_id):
                 death_country
             FROM physics_nobel_laureates
             WHERE id = %s;
-        """, (laureate_id,))
+        """,
+            (laureate_id,),
+        )
 
         row = cursor.fetchone()
         return map_row_to_dict(row) if row else None
@@ -105,35 +119,42 @@ def fetch_physics_laureate_by_id(laureate_id):
         if connection:
             connection.close()
 
+
 @app.before_request
 def before_request():
     REQUEST_COUNT.labels(method=request.method, endpoint=request.path).inc()
     INPROGRESS_REQUESTS.labels(method=request.method, endpoint=request.path).inc()
+
 
 @app.after_request
 def after_request(response):
     INPROGRESS_REQUESTS.labels(method=request.method, endpoint=request.path).dec()
     return response
 
+
 @app.errorhandler(404)
 def not_found(error):
     ERROR_COUNT.labels(method=request.method, endpoint=request.path, status=404).inc()
     return jsonify({"error": "Not found"}), 404
+
 
 @app.errorhandler(Exception)
 def handle_exception(error):
     ERROR_COUNT.labels(method=request.method, endpoint=request.path, status=500).inc()
     return jsonify({"error": str(error)}), 500
 
+
 @app.route("/metrics", methods=["GET"])
 def metrics():
     return Response(generate_latest(), mimetype="text/plain")
+
 
 @app.route("/laureates/physics", methods=["GET"])
 def get_physics_laureates():
     with RESPONSE_LATENCY.labels(method=request.method, endpoint=request.path).time():
         laureates = fetch_physics_laureates()
         return jsonify(laureates)
+
 
 @app.route("/laureates/physics/<int:laureate_id>", methods=["GET"])
 def get_physics_laureate_by_id(laureate_id):
@@ -151,6 +172,7 @@ def get_physics_laureate_by_id(laureate_id):
 
         cache.set(cache_key, json.dumps(laureate))
         return jsonify(laureate)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
