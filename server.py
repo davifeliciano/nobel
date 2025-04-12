@@ -149,6 +149,11 @@ def metrics():
     return Response(generate_latest(), mimetype="text/plain")
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"message": "Application is live and ready!"}), 200
+
+
 @app.route("/laureates/physics", methods=["GET"])
 def get_physics_laureates():
     with RESPONSE_LATENCY.labels(method=request.method, endpoint=request.path).time():
