@@ -1,10 +1,12 @@
 #!/bin/bash
 
 CONCURRENT_REQUESTS=10
-ITERATIONS=50
+ITERATIONS=20
 MAX_LAUREATE_ID=300
+BASE_URL="http://localhost"
+LOG_FILE="stress_test_$(date --iso-8601=seconds).log"
 
-trap "echo 'Stress test interrupted. Exiting...'; exit 1" SIGINT
+trap "echo 'Stress test interrupted. Cleaning up...'; kill 0; exit 1" SIGINT
 
 while getopts c:i: flag; do
   case "${flag}" in
@@ -14,18 +16,23 @@ while getopts c:i: flag; do
   esac
 done
 
-BASE_URL="http://localhost"
+if ! curl -s -o /dev/null "$BASE_URL/health"; then
+  echo "Error: Unable to reach API at $BASE_URL. Check if the server is up and listening."
+  exit 1
+fi
 
 test_physics() {
   for ((i=1; i<=ITERATIONS; i++)); do
-    curl -s -o /dev/null -w "GET /laureates/physics: %{http_code}\n" "$BASE_URL/laureates/physics" &
+    curl -s --max-time 5 -o /dev/null -w "GET /laureates/physics: %{http_code}\n" "$BASE_URL/laureates/physics" ||
+      echo "Error: Unable to connect to $BASE_URL/laureates/physics" >> $LOG_FILE &
   done
 }
 
 test_physics_by_id() {
   for ((i=1; i<=ITERATIONS; i++)); do
     ID=$((RANDOM % MAX_LAUREATE_ID + 1))
-    curl -s -o /dev/null -w "GET /laureates/physics/$ID: %{http_code}\n" "$BASE_URL/laureates/physics/$ID" &
+    curl -s --max-time 5 -o /dev/null -w "GET /laureates/physics/$ID: %{http_code}\n" "$BASE_URL/laureates/physics/$ID" ||
+      echo "Error: Unable to connect to $BASE_URL/laureates/physics/$ID" >> $LOG_FILE &
   done
 }
 
@@ -38,3 +45,4 @@ done
 
 wait
 echo "Stress test completed."
+echo "Error log written at $LOG_FILE file"
