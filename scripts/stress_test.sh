@@ -23,28 +23,45 @@ if ! curl -s -o /dev/null "$BASE_URL/health"; then
   exit 1
 fi
 
+fetch_api() {
+  URL_PATH=$1
+  URL="${BASE_URL}${URL_PATH}"
+  curl -s --max-time 5 -o /dev/null -w "GET $URL_PATH: %{http_code}\n" "$URL" ||
+    echo "Error: Unable to connect to $URL" >> $LOG_FILE &
+}
+
 test_physics() {
-  curl -s --max-time 5 -o /dev/null -w "GET /laureates/physics: %{http_code}\n" "$BASE_URL/laureates/physics" ||
-    echo "Error: Unable to connect to $BASE_URL/laureates/physics" >> $LOG_FILE &
+  fetch_api "/laureates/physics"
   sleep "$SLEEP_TIME"
 }
 
 test_physics_by_id() {
   ID=$((RANDOM % MAX_LAUREATE_ID + 1))
-  curl -s --max-time 5 -o /dev/null -w "GET /laureates/physics/$ID: %{http_code}\n" "$BASE_URL/laureates/physics/$ID" ||
-    echo "Error: Unable to connect to $BASE_URL/laureates/physics/$ID" >> $LOG_FILE &
+  fetch_api "/laureates/physics/$ID"
   sleep "$SLEEP_TIME"
 }
 
-echo "Starting stress test with $CONCURRENT_REQUESTS concurrent requests, $ITERATIONS iterations per endpoint, and $SLEEP_TIME seconds between iterations..."
+test_physics_random() {
+  fetch_api "/laureates/physics/random"
+  sleep "$SLEEP_TIME"
+}
+
+echo "Starting stress test with"
+echo "    * $CONCURRENT_REQUESTS concurrent requests"
+echo "    * $ITERATIONS iterations per endpoint"
+echo "    * $SLEEP_TIME seconds between iterations"
+echo
 
 for ((j=1; j<=CONCURRENT_REQUESTS; j++)); do
   for ((i=1; i<=ITERATIONS; i++)); do
     test_physics
     test_physics_by_id
+    test_physics_random
   done
 done
 
+echo
+echo "All requests sent. Waiting for completion..."
 wait
 echo "Stress test completed."
 

@@ -120,6 +120,41 @@ def fetch_physics_laureate_by_id(laureate_id):
             connection.close()
 
 
+def fetch_random_physics_laureate():
+    connection = None
+
+    try:
+        connection = psycopg2.connect(**DB_CONFIG)
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                full_name,
+                birth_date,
+                birth_city,
+                birth_country,
+                death_date,
+                death_city,
+                death_country
+            FROM physics_nobel_laureates
+            ORDER BY random()
+            LIMIT 1;
+        """
+        )
+
+        row = cursor.fetchone()
+        return map_row_to_dict(row) if row else None
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+    finally:
+        if connection:
+            connection.close()
+
+
 @app.before_request
 def before_request():
     REQUEST_COUNT.labels(method=request.method, endpoint=request.path).inc()
@@ -176,6 +211,13 @@ def get_physics_laureate_by_id(laureate_id):
             abort(404, description="Laureate not found")
 
         cache.set(cache_key, json.dumps(laureate))
+        return jsonify(laureate)
+
+
+@app.route("/laureates/physics/random", methods=["GET"])
+def get_random_physics_laureate():
+    with RESPONSE_LATENCY.labels(method=request.method, endpoint=request.path).time():
+        laureate = fetch_random_physics_laureate()
         return jsonify(laureate)
 
 
